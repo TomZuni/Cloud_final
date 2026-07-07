@@ -1,4 +1,4 @@
-name: Build, Backup to S3, Push Docker Images and Deploy to EC2
+name: Build, Backup to S3, Push Docker Images and Deploy to EC2 
 
 on:
   push:
