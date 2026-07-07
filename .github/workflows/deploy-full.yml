@@ -1,4 +1,4 @@
-name: Build, Backup to S3, Push Docker Images and Deploy to EC2 
+name: Build, Backup to S3, Push Docker Images and Deploy to EC2
 
 on:
   push:
@@ -26,11 +26,11 @@ jobs:
           cache: maven
 
       - name: Compilar ms-productor-mensajes
-        working-directory: ./microservicios/ms-productor-mensajes
+        working-directory: ./ms-productor-mensajes
         run: ./mvnw clean package -DskipTests
 
       - name: Compilar ms-consumidor-mensajes
-        working-directory: ./microservicios/ms-consumidor-mensajes
+        working-directory: ./ms-consumidor-mensajes
         run: ./mvnw clean package -DskipTests
 
       - name: Configurar credenciales AWS (Learner Lab)
@@ -44,13 +44,13 @@ jobs:
       - name: Respaldar jars en S3 (evidencia de build)
         run: |
           TS=$(date +%Y%m%d-%H%M%S)
-          aws s3 cp microservicios/ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
+          aws s3 cp ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
             s3://${{ env.S3_BUCKET }}/builds/$TS/${{ env.PRODUCTOR_JAR }}
-          aws s3 cp microservicios/ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
+          aws s3 cp ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
             s3://${{ env.S3_BUCKET }}/builds/$TS/${{ env.CONSUMIDOR_JAR }}
-          aws s3 cp microservicios/ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
+          aws s3 cp ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
             s3://${{ env.S3_BUCKET }}/latest/${{ env.PRODUCTOR_JAR }}
-          aws s3 cp microservicios/ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
+          aws s3 cp ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
             s3://${{ env.S3_BUCKET }}/latest/${{ env.CONSUMIDOR_JAR }}
 
   build-and-push-docker:
@@ -69,14 +69,14 @@ jobs:
       - name: Build y push - ms-productor-mensajes
         uses: docker/build-push-action@v6
         with:
-          context: ./microservicios/ms-productor-mensajes
+          context: ./ms-productor-mensajes
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/ms-productor-mensajes:latest
 
       - name: Build y push - ms-consumidor-mensajes
         uses: docker/build-push-action@v6
         with:
-          context: ./microservicios/ms-consumidor-mensajes
+          context: ./ms-consumidor-mensajes
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/ms-consumidor-mensajes:latest
 
@@ -93,9 +93,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "microservicios/docker-compose.yml"
+          source: "docker-compose.yml"
           target: "/home/ec2-user/app"
-          strip_components: 1
 
       - name: Conectarse a EC2 y desplegar con docker-compose
         uses: appleboy/ssh-action@v1.0.3
