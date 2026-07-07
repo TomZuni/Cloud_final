@@ -117,6 +117,14 @@ jobs:
             sed -i "s|build: ./ms-productor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-productor-mensajes:latest|" docker-compose.yml
             sed -i "s|build: ./ms-consumidor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-consumidor-mensajes:latest|" docker-compose.yml
 
+            echo "--- Eliminando contenedores previos con el mismo nombre (corriendo o detenidos) ---"
+            for NAME in rabbitmq ms-productor-mensajes ms-consumidor-mensajes; do
+              if [ -n "$(docker ps -aq -f name=^${NAME}$)" ]; then
+                echo "Eliminando contenedor previo: $NAME"
+                docker rm -f "$NAME" || true
+              fi
+            done
+
             echo "--- Liberando puertos ocupados por contenedores de OTROS proyectos ---"
             for PORT in 8080 8081 5672 15672; do
               CID=$(docker ps -q --filter "publish=$PORT")
