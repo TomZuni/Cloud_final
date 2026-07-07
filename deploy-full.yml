@@ -1,0 +1,118 @@
+name: Build, Backup to S3, Push Docker Images and Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: cdy2204-artefactos-tomas
+  PRODUCTOR_JAR: ms-productor-mensajes-1.0.0.jar
+  CONSUMIDOR_JAR: ms-consumidor-mensajes-1.0.0.jar
+
+jobs:
+  build-jars-and-backup-s3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compilar ms-productor-mensajes
+        working-directory: ./microservicios/ms-productor-mensajes
+        run: ./mvnw clean package -DskipTests
+
+      - name: Compilar ms-consumidor-mensajes
+        working-directory: ./microservicios/ms-consumidor-mensajes
+        run: ./mvnw clean package -DskipTests
+
+      - name: Configurar credenciales AWS (Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Respaldar jars en S3 (evidencia de build)
+        run: |
+          TS=$(date +%Y%m%d-%H%M%S)
+          aws s3 cp microservicios/ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
+            s3://${{ env.S3_BUCKET }}/builds/$TS/${{ env.PRODUCTOR_JAR }}
+          aws s3 cp microservicios/ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
+            s3://${{ env.S3_BUCKET }}/builds/$TS/${{ env.CONSUMIDOR_JAR }}
+          aws s3 cp microservicios/ms-productor-mensajes/target/${{ env.PRODUCTOR_JAR }} \
+            s3://${{ env.S3_BUCKET }}/latest/${{ env.PRODUCTOR_JAR }}
+          aws s3 cp microservicios/ms-consumidor-mensajes/target/${{ env.CONSUMIDOR_JAR }} \
+            s3://${{ env.S3_BUCKET }}/latest/${{ env.CONSUMIDOR_JAR }}
+
+  build-and-push-docker:
+    needs: build-jars-and-backup-s3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build y push - ms-productor-mensajes
+        uses: docker/build-push-action@v6
+        with:
+          context: ./microservicios/ms-productor-mensajes
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/ms-productor-mensajes:latest
+
+      - name: Build y push - ms-consumidor-mensajes
+        uses: docker/build-push-action@v6
+        with:
+          context: ./microservicios/ms-consumidor-mensajes
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/ms-consumidor-mensajes:latest
+
+  deploy-to-ec2:
+    needs: build-and-push-docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Copiar docker-compose.yml a la EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "microservicios/docker-compose.yml"
+          target: "/home/ec2-user/app"
+          strip_components: 1
+
+      - name: Conectarse a EC2 y desplegar con docker-compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/app
+            docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+
+            sed -i "s|build: ./ms-productor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-productor-mensajes:latest|" docker-compose.yml
+            sed -i "s|build: ./ms-consumidor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-consumidor-mensajes:latest|" docker-compose.yml
+
+            docker compose pull
+            docker compose down
+            docker compose up -d
+
+            echo "--- Estado de los contenedores ---"
+            docker compose ps
