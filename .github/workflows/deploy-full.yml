@@ -117,9 +117,26 @@ jobs:
             sed -i "s|build: ./ms-productor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-productor-mensajes:latest|" docker-compose.yml
             sed -i "s|build: ./ms-consumidor-mensajes|image: ${{ secrets.DOCKERHUB_USERNAME }}/ms-consumidor-mensajes:latest|" docker-compose.yml
 
+            echo "--- Liberando puertos ocupados por contenedores de OTROS proyectos ---"
+            for PORT in 8080 8081 5672 15672; do
+              CID=$(docker ps -q --filter "publish=$PORT")
+              if [ -n "$CID" ]; then
+                echo "Puerto $PORT ocupado por $CID, deteniendo ese contenedor..."
+                docker stop "$CID" || true
+              fi
+            done
+
+            echo "--- Bajando y limpiando la corrida anterior de ESTE proyecto ---"
+            docker compose down --remove-orphans || true
+
+            echo "--- Descargando imagenes actualizadas ---"
             docker compose pull
-            docker compose down
+
+            echo "--- Levantando los contenedores ---"
             docker compose up -d
 
             echo "--- Estado de los contenedores ---"
             docker compose ps
+
+            echo "--- Memoria disponible (por si RabbitMQ + Java se quedan sin RAM) ---"
+            free -h
